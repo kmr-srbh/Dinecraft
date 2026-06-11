@@ -1,0 +1,330 @@
+import { useEffect, useState } from 'react';
+import { useGameStore } from './useGameState';
+
+/**
+ * HTML overlay UI for score, start screen, and game over screen.
+ * Lives outside the R3F Canvas so it can use standard HTML/CSS.
+ */
+
+const DEFAULT_LEADERBOARD = [];
+
+export default function GameUI() {
+  const status = useGameStore((s) => s.status);
+  const score = useGameStore((s) => s.score);
+  const highScore = useGameStore((s) => s.highScore);
+  const startGame = useGameStore((s) => s.startGame);
+
+  const displayScore = Math.floor(score);
+  const displayHigh = Math.floor(Math.max(highScore, score));
+
+  // User details & Leaderboard
+  const [username, setUsername] = useState(() => localStorage.getItem('dino3d_username') || '');
+  const [nameInput, setNameInput] = useState('');
+  const [leaderboard, setLeaderboard] = useState(() => {
+    const current = localStorage.getItem('dino3d_leaderboard_v4');
+    return current ? JSON.parse(current) : DEFAULT_LEADERBOARD;
+  });
+
+  // Base counts for play session tracker
+  const BASE_PLAYS = 0;
+  const BASE_UNIQUES = 0;
+
+  const [playsCount, setPlaysCount] = useState(() => {
+    const local = localStorage.getItem('dino3d_local_plays');
+    return local ? parseInt(local, 10) : BASE_PLAYS;
+  });
+  const [uniquesCount, setUniquesCount] = useState(() => {
+    const local = localStorage.getItem('dino3d_local_uniques_v4');
+    return local ? parseInt(local, 10) : BASE_UNIQUES;
+  });
+
+  const namespace = 'dino3d_saurabh_v4';
+
+  const fetchCounts = async () => {
+    try {
+      const playsRes = await fetch(`https://api.counterapi.dev/v1/${namespace}/plays`);
+      const playsData = await playsRes.json();
+
+      const uniquesRes = await fetch(`https://api.counterapi.dev/v1/${namespace}/uniques`);
+      const uniquesData = await uniquesRes.json();
+
+      if (playsData && typeof playsData.count === 'number') {
+        const finalPlays = BASE_PLAYS + playsData.count;
+        setPlaysCount(finalPlays);
+        localStorage.setItem('dino3d_local_plays', String(finalPlays));
+      }
+      if (uniquesData && typeof uniquesData.count === 'number') {
+        const finalUniques = BASE_UNIQUES + uniquesData.count;
+        setUniquesCount(finalUniques);
+        localStorage.setItem('dino3d_local_uniques_v4', String(finalUniques));
+      }
+    } catch (err) {
+      console.warn("Failed to fetch global counter stats:", err);
+    }
+  };
+
+  const incrementPlayCount = async () => {
+    setPlaysCount((prev) => {
+      const next = prev + 1;
+      localStorage.setItem('dino3d_local_plays', String(next));
+      return next;
+    });
+
+    try {
+      const res = await fetch(`https://api.counterapi.dev/v1/${namespace}/plays/up`);
+      const data = await res.json();
+      if (data && typeof data.count === 'number') {
+        const finalPlays = BASE_PLAYS + data.count;
+        setPlaysCount(finalPlays);
+        localStorage.setItem('dino3d_local_plays', String(finalPlays));
+      }
+    } catch (err) {
+      console.warn("Failed to increment global plays count:", err);
+    }
+  };
+
+  const incrementUniquePlayer = async () => {
+    setUniquesCount((prev) => {
+      const next = prev + 1;
+      localStorage.setItem('dino3d_local_uniques_v4', String(next));
+      return next;
+    });
+
+    try {
+      const res = await fetch(`https://api.counterapi.dev/v1/${namespace}/uniques/up`);
+      const data = await res.json();
+      if (data && typeof data.count === 'number') {
+        const finalUniques = BASE_UNIQUES + data.count;
+        setUniquesCount(finalUniques);
+        localStorage.setItem('dino3d_local_uniques_v4', String(finalUniques));
+      }
+    } catch (err) {
+      console.warn("Failed to increment global uniques count:", err);
+    }
+
+    fetchCounts();
+  };
+
+  const handleSaveName = (e) => {
+    e.preventDefault();
+    if (!nameInput.trim()) return;
+    const cleanName = nameInput.trim().slice(0, 12);
+    localStorage.setItem('dino3d_username', cleanName);
+    setUsername(cleanName);
+
+    // Save default leaderboard if not set
+    const current = localStorage.getItem('dino3d_leaderboard_v4');
+    if (!current) {
+      localStorage.setItem('dino3d_leaderboard_v4', JSON.stringify(DEFAULT_LEADERBOARD));
+      setLeaderboard(DEFAULT_LEADERBOARD);
+    } else {
+      setLeaderboard(JSON.parse(current));
+    }
+  };
+
+  const updateLeaderboard = (finalScore) => {
+    if (!username) return;
+    const current = localStorage.getItem('dino3d_leaderboard_v4');
+    let list = current ? JSON.parse(current) : [...DEFAULT_LEADERBOARD];
+
+    const existingIndex = list.findIndex(item => item.name.toUpperCase() === username.toUpperCase());
+    if (existingIndex !== -1) {
+      if (finalScore > list[existingIndex].score) {
+        list[existingIndex].score = Math.floor(finalScore);
+      }
+    } else {
+      list.push({ name: username, score: Math.floor(finalScore) });
+    }
+
+    list.sort((a, b) => b.score - a.score);
+    list = list.slice(0, 25);
+
+    localStorage.setItem('dino3d_leaderboard_v4', JSON.stringify(list));
+    setLeaderboard(list);
+  };
+
+  // Mount logic
+  useEffect(() => {
+    const hasVisited = localStorage.getItem('dino3d_unique_registered_v4');
+    if (!hasVisited) {
+      localStorage.setItem('dino3d_unique_registered_v4', 'true');
+      incrementUniquePlayer();
+    } else {
+      fetchCounts();
+    }
+
+    // Initialize leaderboard if not present
+    const current = localStorage.getItem('dino3d_leaderboard_v4');
+    if (!current) {
+      localStorage.setItem('dino3d_leaderboard_v4', JSON.stringify(DEFAULT_LEADERBOARD));
+    }
+  }, []);
+
+  // Update leaderboard on Game Over
+  useEffect(() => {
+    if (status === 'gameover' && score > 0) {
+      updateLeaderboard(score);
+    }
+  }, [status]);
+
+  // Increment plays on game start
+  useEffect(() => {
+    if (status === 'playing') {
+      incrementPlayCount();
+    }
+  }, [status]);
+
+  return (
+    <>
+      {/* HUD - visible during gameplay */}
+      {status === 'playing' && (
+        <div className="game-hud">
+          <div>
+            <div className="score-display" id="score-display">
+              {String(displayScore).padStart(5, '0')}
+            </div>
+            <div className="high-score">
+              HI <span>{String(displayHigh).padStart(5, '0')}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 1. Name Entry Screen (First Visit) */}
+      {!username && (status === 'idle' || status === 'gameover') && (
+        <div className="game-overlay" id="name-screen">
+          <div className="overlay-card" style={{ maxWidth: '450px' }}>
+            <div className="overlay-title">ENTER NAME</div>
+            <div className="overlay-subtitle">Choose your gamer name</div>
+            <form onSubmit={handleSaveName} style={{ width: '100%' }}>
+              <input
+                type="text"
+                className="name-input"
+                maxLength="12"
+                placeholder="GamerName"
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                autoFocus
+                required
+              />
+              <button type="submit" className="play-button" style={{ marginTop: '8px' }}>
+                CONTINUE
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Start Screen (with Leaderboard) */}
+      {username && status === 'idle' && (
+        <div className="game-overlay" id="start-screen">
+          <div className="overlay-layout">
+            <div className="overlay-card-left">
+              <div className="overlay-title" style={{ fontSize: 'clamp(24px, 4vw, 36px)' }}>DINECRAFT</div>
+
+
+              <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginBottom: '24px' }}>
+                Gamer: <span style={{ color: 'var(--color-green)', fontWeight: 'bold' }}>{username}</span>
+                <button className="name-edit-btn" onClick={() => setUsername('')}>
+                  Edit
+                </button>
+              </div>
+
+              <button
+                className="play-button"
+                id="start-button"
+                onClick={() => startGame()}
+              >
+                ▶ START GAME
+              </button>
+              <div className="controls-hint">
+                <kbd>SPACE</kbd> or <kbd>↑</kbd> to Jump<br />
+                <kbd>↓</kbd> to Duck &nbsp;·&nbsp; Tap to play on mobile
+              </div>
+            </div>
+
+            <div className="leaderboard-container">
+              <div className="leaderboard-title">🏆 TOP 25 LEADERBOARD</div>
+              <div className="leaderboard-list">
+                {leaderboard.length === 0 ? (
+                  <div style={{ color: 'var(--color-text-muted)', fontSize: '11px', textAlign: 'center', marginTop: '48px', fontFamily: 'var(--font-pixel)', lineHeight: '1.8' }}>
+                    NO SCORES YET.<br />PLAY TO SET A RECORD!
+                  </div>
+                ) : (
+                  leaderboard.map((player, i) => (
+                    <div
+                      key={i}
+                      className={`leaderboard-row ${player.name.toUpperCase() === username.toUpperCase() ? 'current-player' : ''}`}
+                    >
+                      <span className={`leaderboard-rank rank-${i + 1}`}>{i + 1}</span>
+                      <span className="leaderboard-name">{player.name}</span>
+                      <span className="leaderboard-score">{String(player.score).padStart(5, '0')}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Game Over Screen (with Leaderboard) */}
+      {username && status === 'gameover' && (
+        <div className="game-overlay" id="gameover-screen">
+          <div className="overlay-layout">
+            <div className="overlay-card-left">
+              <div className="overlay-title">GAME OVER</div>
+              <div className="overlay-score">{String(displayScore).padStart(5, '0')}</div>
+              {displayScore >= displayHigh && displayScore > 0 && (
+                <div className="overlay-best">★ NEW BEST! ★</div>
+              )}
+              <div className="high-score" style={{ marginBottom: '24px', textAlign: 'center' }}>
+                BEST: <span>{String(displayHigh).padStart(5, '0')}</span>
+              </div>
+              <button
+                className="play-button"
+                id="restart-button"
+                onClick={() => startGame()}
+              >
+                ↻ PLAY AGAIN
+              </button>
+              <div className="controls-hint">
+                Press <kbd>SPACE</kbd> to restart
+              </div>
+            </div>
+
+            <div className="leaderboard-container">
+              <div className="leaderboard-title">🏆 TOP 25 LEADERBOARD</div>
+              <div className="leaderboard-list">
+                {leaderboard.length === 0 ? (
+                  <div style={{ color: 'var(--color-text-muted)', fontSize: '11px', textAlign: 'center', marginTop: '48px', fontFamily: 'var(--font-pixel)', lineHeight: '1.8' }}>
+                    NO SCORES YET.<br />PLAY TO SET A RECORD!
+                  </div>
+                ) : (
+                  leaderboard.map((player, i) => (
+                    <div
+                      key={i}
+                      className={`leaderboard-row ${player.name.toUpperCase() === username.toUpperCase() ? 'current-player' : ''}`}
+                    >
+                      <span className={`leaderboard-rank rank-${i + 1}`}>{i + 1}</span>
+                      <span className="leaderboard-name">{player.name}</span>
+                      <span className="leaderboard-score">{String(player.score).padStart(5, '0')}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Touch zone for mobile */}
+      {status === 'playing' && <div className="touch-zone" />}
+
+      {/* Stats display in bottom right corner */}
+      <div className="stats-display">
+        PLAYS: {playsCount} &nbsp;·&nbsp; PLAYERS: {uniquesCount}
+      </div>
+    </>
+  );
+}
