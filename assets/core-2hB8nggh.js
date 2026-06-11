@@ -1,0 +1,1 @@
+throw Error(`Could not resolve "@react-three/rapier" imported by "@carverjs/core". Is it installed?`);
