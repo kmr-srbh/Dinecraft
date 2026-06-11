@@ -12,6 +12,7 @@ permissions:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    environment: github-pages
     steps:
       - name: Checkout 🛎️
         uses: actions/checkout@v4
@@ -27,6 +28,9 @@ jobs:
 
       - name: Build 🏗️
         run: npm run build
+        env:
+          VITE_JSONBIN_API_KEY: ${{ secrets.VITE_JSONBIN_API_KEY }}
+          VITE_JSONBIN_BIN_ID: ${{ secrets.VITE_JSONBIN_BIN_ID }}
 
       - name: Deploy 🚀
         uses: peaceiris/actions-gh-pages@v4

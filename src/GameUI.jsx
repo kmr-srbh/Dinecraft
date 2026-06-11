@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useGameStore } from './useGameState';
+import { fetchLeaderboard, submitScore } from './leaderboardService';
 
 /**
  * HTML overlay UI for score, start screen, and game over screen.
@@ -16,6 +17,9 @@ export default function GameUI() {
 
   const displayScore = Math.floor(score);
   const displayHigh = Math.floor(Math.max(highScore, score));
+
+  // Capture the previous high score at the start of gameplay to strictly check for new best
+  const [previousHighScore, setPreviousHighScore] = useState(highScore);
 
   // User details & Leaderboard
   const [username, setUsername] = useState(() => localStorage.getItem('dino3d_username') || '');
@@ -40,7 +44,7 @@ export default function GameUI() {
 
   const namespace = 'dino3d_saurabh_v4';
 
-  const fetchCounts = async () => {
+  const fetchCounts = useCallback(async () => {
     try {
       const playsRes = await fetch(`https://api.counterapi.dev/v1/${namespace}/plays`);
       const playsData = await playsRes.json();
@@ -61,9 +65,9 @@ export default function GameUI() {
     } catch (err) {
       console.warn("Failed to fetch global counter stats:", err);
     }
-  };
+  }, []);
 
-  const incrementPlayCount = async () => {
+  const incrementPlayCount = useCallback(async () => {
     setPlaysCount((prev) => {
       const next = prev + 1;
       localStorage.setItem('dino3d_local_plays', String(next));
@@ -81,9 +85,9 @@ export default function GameUI() {
     } catch (err) {
       console.warn("Failed to increment global plays count:", err);
     }
-  };
+  }, []);
 
-  const incrementUniquePlayer = async () => {
+  const incrementUniquePlayer = useCallback(async () => {
     setUniquesCount((prev) => {
       const next = prev + 1;
       localStorage.setItem('dino3d_local_uniques_v4', String(next));
@@ -103,7 +107,12 @@ export default function GameUI() {
     }
 
     fetchCounts();
-  };
+  }, [fetchCounts]);
+
+  const loadLeaderboard = useCallback(async () => {
+    const list = await fetchLeaderboard();
+    setLeaderboard(list);
+  }, []);
 
   const handleSaveName = (e) => {
     e.preventDefault();
@@ -111,39 +120,19 @@ export default function GameUI() {
     const cleanName = nameInput.trim().slice(0, 12);
     localStorage.setItem('dino3d_username', cleanName);
     setUsername(cleanName);
-
-    // Save default leaderboard if not set
-    const current = localStorage.getItem('dino3d_leaderboard_v4');
-    if (!current) {
-      localStorage.setItem('dino3d_leaderboard_v4', JSON.stringify(DEFAULT_LEADERBOARD));
-      setLeaderboard(DEFAULT_LEADERBOARD);
-    } else {
-      setLeaderboard(JSON.parse(current));
-    }
+    loadLeaderboard();
   };
 
-  const updateLeaderboard = (finalScore) => {
+  const updateLeaderboard = useCallback(async (finalScore) => {
     if (!username) return;
-    const current = localStorage.getItem('dino3d_leaderboard_v4');
-    let list = current ? JSON.parse(current) : [...DEFAULT_LEADERBOARD];
-
-    const existingIndex = list.findIndex(item => item.name.toUpperCase() === username.toUpperCase());
-    if (existingIndex !== -1) {
-      if (finalScore > list[existingIndex].score) {
-        list[existingIndex].score = Math.floor(finalScore);
-      }
-    } else {
-      list.push({ name: username, score: Math.floor(finalScore) });
-    }
-
-    list.sort((a, b) => b.score - a.score);
-    list = list.slice(0, 25);
-
-    localStorage.setItem('dino3d_leaderboard_v4', JSON.stringify(list));
+    const list = await submitScore(username, finalScore);
     setLeaderboard(list);
-  };
+  }, [username]);
 
-  // Mount logic
+  // Keep a ref of status to determine state changes safely in effects
+  const prevStatusRef = useRef(status);
+
+  // Mount logic & initial load
   useEffect(() => {
     const hasVisited = localStorage.getItem('dino3d_unique_registered_v4');
     if (!hasVisited) {
@@ -152,27 +141,24 @@ export default function GameUI() {
     } else {
       fetchCounts();
     }
+    loadLeaderboard();
+  }, [incrementUniquePlayer, fetchCounts, loadLeaderboard]);
 
-    // Initialize leaderboard if not present
-    const current = localStorage.getItem('dino3d_leaderboard_v4');
-    if (!current) {
-      localStorage.setItem('dino3d_leaderboard_v4', JSON.stringify(DEFAULT_LEADERBOARD));
-    }
-  }, []);
-
-  // Update leaderboard on Game Over
+  // Handle game transitions: updates, plays, leaderboard submissions
   useEffect(() => {
-    if (status === 'gameover' && score > 0) {
-      updateLeaderboard(score);
+    const prevStatus = prevStatusRef.current;
+    if (prevStatus !== status) {
+      if (status === 'playing') {
+        incrementPlayCount();
+        setPreviousHighScore(highScore);
+      } else if (status === 'gameover' && score > 0) {
+        updateLeaderboard(score);
+      }
+      prevStatusRef.current = status;
     }
-  }, [status]);
+  }, [status, score, highScore, incrementPlayCount, updateLeaderboard]);
 
-  // Increment plays on game start
-  useEffect(() => {
-    if (status === 'playing') {
-      incrementPlayCount();
-    }
-  }, [status]);
+  const isNewBest = displayScore > Math.floor(previousHighScore) && displayScore > 0;
 
   return (
     <>
@@ -222,7 +208,6 @@ export default function GameUI() {
             <div className="overlay-card-left">
               <div className="overlay-title" style={{ fontSize: 'clamp(24px, 4vw, 36px)' }}>DINECRAFT</div>
 
-
               <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginBottom: '24px' }}>
                 Gamer: <span style={{ color: 'var(--color-green)', fontWeight: 'bold' }}>{username}</span>
                 <button className="name-edit-btn" onClick={() => setUsername('')}>
@@ -253,7 +238,7 @@ export default function GameUI() {
                 ) : (
                   leaderboard.map((player, i) => (
                     <div
-                      key={i}
+                      key={player.name}
                       className={`leaderboard-row ${player.name.toUpperCase() === username.toUpperCase() ? 'current-player' : ''}`}
                     >
                       <span className={`leaderboard-rank rank-${i + 1}`}>{i + 1}</span>
@@ -275,7 +260,7 @@ export default function GameUI() {
             <div className="overlay-card-left">
               <div className="overlay-title">GAME OVER</div>
               <div className="overlay-score">{String(displayScore).padStart(5, '0')}</div>
-              {displayScore >= displayHigh && displayScore > 0 && (
+              {isNewBest && (
                 <div className="overlay-best">★ NEW BEST! ★</div>
               )}
               <div className="high-score" style={{ marginBottom: '24px', textAlign: 'center' }}>
@@ -303,7 +288,7 @@ export default function GameUI() {
                 ) : (
                   leaderboard.map((player, i) => (
                     <div
-                      key={i}
+                      key={player.name}
                       className={`leaderboard-row ${player.name.toUpperCase() === username.toUpperCase() ? 'current-player' : ''}`}
                     >
                       <span className={`leaderboard-rank rank-${i + 1}`}>{i + 1}</span>
