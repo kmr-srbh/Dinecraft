@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useGameStore } from './useGameState';
-import { fetchLeaderboard, submitScore } from './leaderboardService';
+import { fetchLeaderboard, submitScore, fetchPlayerCount } from './leaderboardService';
 
 /**
  * HTML overlay UI for score, start screen, and game over screen.
@@ -31,16 +31,12 @@ export default function GameUI() {
 
   // Base counts for play session tracker
   const BASE_PLAYS = 0;
-  const BASE_UNIQUES = 0;
 
   const [playsCount, setPlaysCount] = useState(() => {
     const local = localStorage.getItem('dino3d_local_plays');
     return local ? parseInt(local, 10) : BASE_PLAYS;
   });
-  const [uniquesCount, setUniquesCount] = useState(() => {
-    const local = localStorage.getItem('dino3d_local_uniques_v4');
-    return local ? parseInt(local, 10) : BASE_UNIQUES;
-  });
+  const [uniquesCount, setUniquesCount] = useState(0);
 
   const namespace = 'dino3d_saurabh_v4';
 
@@ -49,21 +45,22 @@ export default function GameUI() {
       const playsRes = await fetch(`https://api.counterapi.dev/v1/${namespace}/plays`);
       const playsData = await playsRes.json();
 
-      const uniquesRes = await fetch(`https://api.counterapi.dev/v1/${namespace}/uniques`);
-      const uniquesData = await uniquesRes.json();
-
       if (playsData && typeof playsData.count === 'number') {
         const finalPlays = BASE_PLAYS + playsData.count;
         setPlaysCount(finalPlays);
         localStorage.setItem('dino3d_local_plays', String(finalPlays));
       }
-      if (uniquesData && typeof uniquesData.count === 'number') {
-        const finalUniques = BASE_UNIQUES + uniquesData.count;
-        setUniquesCount(finalUniques);
-        localStorage.setItem('dino3d_local_uniques_v4', String(finalUniques));
-      }
     } catch (err) {
       console.warn("Failed to fetch global counter stats:", err);
+    }
+  }, []);
+
+  const refreshPlayerCount = useCallback(async () => {
+    try {
+      const count = await fetchPlayerCount();
+      setUniquesCount(count);
+    } catch (err) {
+      console.warn("Failed to fetch player count:", err);
     }
   }, []);
 
@@ -86,28 +83,6 @@ export default function GameUI() {
       console.warn("Failed to increment global plays count:", err);
     }
   }, []);
-
-  const incrementUniquePlayer = useCallback(async () => {
-    setUniquesCount((prev) => {
-      const next = prev + 1;
-      localStorage.setItem('dino3d_local_uniques_v4', String(next));
-      return next;
-    });
-
-    try {
-      const res = await fetch(`https://api.counterapi.dev/v1/${namespace}/uniques/up`);
-      const data = await res.json();
-      if (data && typeof data.count === 'number') {
-        const finalUniques = BASE_UNIQUES + data.count;
-        setUniquesCount(finalUniques);
-        localStorage.setItem('dino3d_local_uniques_v4', String(finalUniques));
-      }
-    } catch (err) {
-      console.warn("Failed to increment global uniques count:", err);
-    }
-
-    fetchCounts();
-  }, [fetchCounts]);
 
   const loadLeaderboard = useCallback(async () => {
     const list = await fetchLeaderboard();
@@ -134,15 +109,10 @@ export default function GameUI() {
 
   // Mount logic & initial load
   useEffect(() => {
-    const hasVisited = localStorage.getItem('dino3d_unique_registered_v4');
-    if (!hasVisited) {
-      localStorage.setItem('dino3d_unique_registered_v4', 'true');
-      incrementUniquePlayer();
-    } else {
-      fetchCounts();
-    }
+    fetchCounts();
+    refreshPlayerCount();
     loadLeaderboard();
-  }, [incrementUniquePlayer, fetchCounts, loadLeaderboard]);
+  }, [fetchCounts, refreshPlayerCount, loadLeaderboard]);
 
   // Handle game transitions: updates, plays, leaderboard submissions
   useEffect(() => {
@@ -152,11 +122,11 @@ export default function GameUI() {
         incrementPlayCount();
         setPreviousHighScore(highScore);
       } else if (status === 'gameover' && score > 0) {
-        updateLeaderboard(score);
+        updateLeaderboard(score).then(() => refreshPlayerCount());
       }
       prevStatusRef.current = status;
     }
-  }, [status, score, highScore, incrementPlayCount, updateLeaderboard]);
+  }, [status, score, highScore, incrementPlayCount, updateLeaderboard, refreshPlayerCount]);
 
   const isNewBest = displayScore > Math.floor(previousHighScore) && displayScore > 0;
 

@@ -135,6 +135,37 @@ export async function fetchLeaderboard() {
 }
 
 /**
+ * Return the total number of unique players who have ever submitted a score.
+ * Uses the full (uncapped) remote leaderboard list length.
+ * Falls back to the cached leaderboard length.
+ */
+export async function fetchPlayerCount() {
+  const binId = getBinId();
+  if (!binId) {
+    return getCachedLeaderboard().length;
+  }
+
+  try {
+    const res = await fetch(`${JSONBIN_BASE}/b/${binId}/latest`, {
+      headers: {
+        'X-Master-Key': API_KEY,
+      },
+    });
+
+    if (!res.ok) {
+      throw new Error(`Fetch failed: ${res.status}`);
+    }
+
+    const data = await res.json();
+    const list = Array.isArray(data.record?.leaderboard) ? data.record.leaderboard : [];
+    return list.length;
+  } catch (err) {
+    console.warn('[Leaderboard] Player count fetch failed, using cache:', err.message);
+    return getCachedLeaderboard().length;
+  }
+}
+
+/**
  * Submit a score to the global leaderboard.
  * If the player already exists, only updates if the new score is higher.
  * Returns the updated leaderboard array.
