@@ -14,7 +14,7 @@ const ENV_BIN_ID = import.meta.env.VITE_JSONBIN_BIN_ID || '';
 const JSONBIN_BASE = 'https://api.jsonbin.io/v3';
 const LS_BIN_ID_KEY = 'dino3d_jsonbin_bin_id';
 const LS_LEADERBOARD_KEY = 'dino3d_leaderboard_v4';
-const MAX_ENTRIES = 25;
+const MAX_DISPLAY = 50;
 
 /**
  * Get the bin ID — from env var, or from localStorage (set after first creation).
@@ -121,9 +121,9 @@ export async function fetchLeaderboard() {
     const data = await res.json();
     const list = Array.isArray(data.record?.leaderboard) ? data.record.leaderboard : [];
 
-    // Sort descending by score, cap at MAX_ENTRIES
+    // Sort descending by score, return top MAX_DISPLAY for display
     list.sort((a, b) => b.score - a.score);
-    const trimmed = list.slice(0, MAX_ENTRIES);
+    const trimmed = list.slice(0, MAX_DISPLAY);
 
     // Update cache
     setCachedLeaderboard(trimmed);
@@ -219,5 +219,5 @@ function mergeScore(list, name, score) {
   }
 
   copy.sort((a, b) => b.score - a.score);
-  return copy.slice(0, MAX_ENTRIES);
+  return copy;
 }
