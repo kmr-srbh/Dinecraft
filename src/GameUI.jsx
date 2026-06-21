@@ -229,7 +229,7 @@ export default function GameUI() {
             </div>
 
             <div className="leaderboard-container">
-              <div className="leaderboard-title">🏆 TOP 25 LEADERBOARD</div>
+              <div className="leaderboard-title">🏆 TOP 50 LEADERBOARD</div>
               <div className="leaderboard-list">
                 {leaderboard.length === 0 ? (
                   <div style={{ color: 'var(--color-text-muted)', fontSize: '11px', textAlign: 'center', marginTop: '48px', fontFamily: 'var(--font-pixel)', lineHeight: '1.8' }}>
@@ -279,7 +279,7 @@ export default function GameUI() {
             </div>
 
             <div className="leaderboard-container">
-              <div className="leaderboard-title">🏆 TOP 25 LEADERBOARD</div>
+              <div className="leaderboard-title">🏆 TOP 50 LEADERBOARD</div>
               <div className="leaderboard-list">
                 {leaderboard.length === 0 ? (
                   <div style={{ color: 'var(--color-text-muted)', fontSize: '11px', textAlign: 'center', marginTop: '48px', fontFamily: 'var(--font-pixel)', lineHeight: '1.8' }}>
